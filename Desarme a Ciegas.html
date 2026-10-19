@@ -1,0 +1,933 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Desarme a Ciegas - Blind Defuse</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts for LED/Industrial theme -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:ital,wght@0,400;0,700;1,600&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+
+    <style>
+        * {
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-touch-callout: none;
+            touch-action: manipulation;
+        }
+
+        body {
+            font-family: 'Chakra Petch', sans-serif;
+            background-color: #08090c;
+            color: #e2e8f0;
+            overflow: hidden;
+        }
+
+        .digital-font {
+            font-family: 'Share Tech Mono', monospace;
+        }
+
+        /* Industrial Metallic BG Texture & Vignette */
+        .cyber-bg {
+            background: 
+                radial-gradient(circle at center, rgba(20, 25, 35, 0.8) 0%, rgba(5, 6, 8, 0.95) 100%),
+                repeating-linear-gradient(45deg, #0d0f14 0, #0d0f14 10px, #08090c 10px, #08090c 20px);
+        }
+
+        .led-red {
+            color: #ff2a2a;
+            text-shadow: 0 0 8px rgba(255, 42, 42, 0.8), 0 0 20px rgba(255, 42, 42, 0.4);
+        }
+
+        .led-green {
+            color: #10b981;
+            text-shadow: 0 0 8px rgba(16, 185, 129, 0.8), 0 0 20px rgba(16, 185, 129, 0.4);
+        }
+
+        .led-yellow {
+            color: #f59e0b;
+            text-shadow: 0 0 8px rgba(245, 158, 11, 0.8);
+        }
+
+        /* Scanline Overlay */
+        .scanlines {
+            background: linear-gradient(
+                rgba(18, 16, 16, 0) 50%, 
+                rgba(0, 0, 0, 0.25) 50%
+            ), linear-gradient(
+                90deg,
+                rgba(255, 0, 0, 0.03),
+                rgba(0, 255, 0, 0.01),
+                rgba(0, 0, 255, 0.03)
+            );
+            background-size: 100% 3px, 6px 100%;
+            pointer-events: none;
+        }
+
+        /* Glass / Metal Box Effect */
+        .industrial-panel {
+            background: linear-gradient(135deg, rgba(30, 35, 45, 0.85) 0%, rgba(15, 18, 24, 0.95) 100%);
+            border: 2px solid #2a3241;
+            box-shadow: 
+                inset 0 1px 0 rgba(255,255,255,0.1),
+                0 10px 25px -5px rgba(0, 0, 0, 0.8),
+                0 0 15px rgba(0, 0, 0, 0.5);
+        }
+
+        /* Explosion Screen Shake Animation */
+        @keyframes shake {
+            0%, 100% { transform: translate(0, 0) rotate(0deg); }
+            10% { transform: translate(-8px, -8px) rotate(-1deg); }
+            20% { transform: translate(8px, 5px) rotate(1deg); }
+            30% { transform: translate(-5px, 8px) rotate(0deg); }
+            40% { transform: translate(6px, -4px) rotate(1deg); }
+            50% { transform: translate(-6px, 4px) rotate(-1deg); }
+            60% { transform: translate(5px, 6px) rotate(0deg); }
+            70% { transform: translate(-4px, -5px) rotate(1deg); }
+            80% { transform: translate(4px, 4px) rotate(-1deg); }
+            90% { transform: translate(-2px, -2px) rotate(0deg); }
+        }
+
+        .animate-shake {
+            animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both;
+        }
+
+        /* Red Warning Pulse */
+        @keyframes redPulse {
+            0%, 100% { opacity: 0; }
+            50% { opacity: 0.35; }
+        }
+
+        .red-flash-overlay {
+            animation: redPulse 0.4s infinite ease-in-out;
+        }
+
+        /* Wire Hover & Active States */
+        .wire-interactive {
+            cursor: pointer;
+            transition: filter 0.2s, transform 0.1s;
+        }
+
+        .wire-interactive:active {
+            transform: scale(0.98);
+        }
+
+        /* Pulse signal visual animation */
+        @keyframes pulseGlow {
+            0% { box-shadow: 0 0 2px #ef4444; }
+            50% { box-shadow: 0 0 15px #ef4444, 0 0 25px #ef4444; }
+            100% { box-shadow: 0 0 2px #ef4444; }
+        }
+
+        .pulse-active {
+            animation: pulseGlow 0.4s infinite;
+        }
+    </style>
+</head>
+<body class="cyber-bg w-screen h-screen flex flex-col justify-between items-center relative select-none">
+
+    <!-- Scanline effect overlay -->
+    <div class="scanlines absolute inset-0 z-40"></div>
+
+    <!-- Danger Flash Effect Overlay (When defuse fails or near timeout) -->
+    <div id="flashOverlay" class="absolute inset-0 bg-red-600 opacity-0 pointer-events-none z-30 transition-opacity duration-200"></div>
+
+    <!-- MAIN HEADER / HUD -->
+    <header class="w-full max-w-2xl px-4 pt-4 flex justify-between items-center z-20">
+        <!-- Brand / Title -->
+        <div class="flex items-center space-x-2">
+            <i class="fa-solid fa-bomb text-red-500 text-2xl animate-pulse"></i>
+            <span class="font-bold tracking-wider text-lg sm:text-xl text-gray-200 uppercase">Desarme <span class="text-red-500">A Ciegas</span></span>
+        </div>
+
+        <!-- High Score & Sound Toggle -->
+        <div class="flex items-center space-x-4">
+            <div class="text-right">
+                <span class="text-xs text-gray-400 block tracking-widest uppercase">RÉCORD</span>
+                <span id="hudHighScore" class="digital-font text-yellow-500 font-bold text-lg">0000</span>
+            </div>
+            <button id="btnMute" class="industrial-panel p-2.5 rounded-lg text-gray-300 hover:text-white active:scale-95 transition">
+                <i id="muteIcon" class="fa-solid fa-volume-high text-lg"></i>
+            </button>
+        </div>
+    </header>
+
+    <!-- CENTER GAME AREA CONTAINER -->
+    <main class="w-full max-w-md px-4 flex-1 flex flex-col justify-center items-center z-20 relative my-2">
+        
+        <!-- BOMB INDUSTRIAL CASING -->
+        <div class="industrial-panel w-full rounded-2xl p-4 sm:p-6 flex flex-col items-center relative border-t-4 border-t-red-600/80">
+            
+            <!-- TOP STATUS PANEL (TIMER + LEVEL) -->
+            <div class="w-full bg-black/60 rounded-xl p-3 mb-4 border border-gray-800 flex justify-between items-center shadow-inner">
+                <!-- Level Indicator -->
+                <div class="flex flex-col">
+                    <span class="text-xs text-gray-400 tracking-wider">BOMBA</span>
+                    <span id="hudLevel" class="digital-font text-xl text-cyan-400 font-bold">#01</span>
+                </div>
+
+                <!-- Digital Nixie/LED Timer -->
+                <div class="bg-black px-4 py-1.5 rounded-md border border-red-950 flex flex-col items-center min-w-[120px]">
+                    <span class="text-[10px] text-red-700 tracking-widest -mb-1 uppercase">DETONACIÓN EN</span>
+                    <span id="hudTimer" class="digital-font text-3xl sm:text-4xl font-bold led-red tracking-wider">15.0s</span>
+                </div>
+
+                <!-- Score Counter -->
+                <div class="flex flex-col text-right">
+                    <span class="text-xs text-gray-400 tracking-wider">PUNTOS</span>
+                    <span id="hudScore" class="digital-font text-xl text-yellow-400 font-bold">0000</span>
+                </div>
+            </div>
+
+            <!-- SIGNAL & MAGNETIC PULSE METERS (HINTS) -->
+            <div class="w-full grid grid-cols-2 gap-2 mb-3 text-xs">
+                <!-- Audio Panning Indicator -->
+                <div class="bg-gray-950/80 p-2 rounded-lg border border-gray-800/80 flex flex-col justify-between">
+                    <div class="flex justify-between items-center text-gray-400 text-[10px] mb-1">
+                        <span>PULSO CANAL L/R</span>
+                        <i class="fa-solid fa-headphones text-cyan-400"></i>
+                    </div>
+                    <div class="flex items-center space-x-1">
+                        <span class="text-[10px] text-gray-500 font-bold">L</span>
+                        <div class="flex-1 bg-gray-900 h-2 rounded-full overflow-hidden flex p-0.5 border border-gray-800">
+                            <div id="panBarL" class="bg-cyan-500 h-full w-0 transition-all duration-75 rounded-full"></div>
+                            <div id="panBarR" class="bg-cyan-500 h-full w-0 transition-all duration-75 rounded-full ml-auto"></div>
+                        </div>
+                        <span class="text-[10px] text-gray-500 font-bold">R</span>
+                    </div>
+                </div>
+
+                <!-- Magnetic Field Sensor -->
+                <div class="bg-gray-950/80 p-2 rounded-lg border border-gray-800/80 flex flex-col justify-between">
+                    <div class="flex justify-between items-center text-gray-400 text-[10px] mb-1">
+                        <span>SEÑAL MAGNÉTICA</span>
+                        <i id="pulseSignalIcon" class="fa-solid fa-wave-square text-red-500"></i>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <div class="flex space-x-1" id="signalLeds">
+                            <div class="w-2.5 h-2.5 rounded-full bg-gray-800"></div>
+                            <div class="w-2.5 h-2.5 rounded-full bg-gray-800"></div>
+                            <div class="w-2.5 h-2.5 rounded-full bg-gray-800"></div>
+                            <div class="w-2.5 h-2.5 rounded-full bg-gray-800"></div>
+                        </div>
+                        <span id="signalText" class="digital-font text-xs text-gray-400">0%</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SVG BOMB WIRE CONTAINER (MAIN INTERACTIVE CANVAS) -->
+            <div class="w-full relative bg-gray-950 rounded-xl overflow-hidden border border-gray-800 shadow-2xl flex items-center justify-center p-2">
+                <!-- Background Wall Pattern for Shadows -->
+                <div class="absolute inset-0 opacity-20 bg-[radial-gradient(#38bdf8_1px,transparent_1px)] [background-size:12px_12px] pointer-events-none"></div>
+
+                <!-- SVG Canvas for procedural wires & cast shadows -->
+                <svg id="bombSvg" class="w-full h-64 sm:h-72 z-10 relative" viewBox="0 0 320 280">
+                    <defs>
+                        <!-- Shadow filter for wires -->
+                        <filter id="shadowFilter" x="-20%" y="-20%" width="140%" height="140%">
+                            <feGaussianBlur in="SourceAlpha" stdDeviation="4" />
+                            <feOffset dx="6" dy="8" result="offsetblur" />
+                            <feComponentTransfer>
+                                <feFuncA type="linear" slope="0.65" />
+                            </feComponentTransfer>
+                            <feMerge> 
+                                <feMergeNode />
+                                <feMergeNode in="SourceGraphic" />
+                            </feMerge>
+                        </filter>
+                        <!-- Glow filter for active/cut wires -->
+                        <filter id="glowGreen" x="-20%" y="-20%" width="140%" height="140%">
+                            <feGaussianBlur stdDeviation="3" result="blur" />
+                            <feMerge>
+                                <feMergeNode in="blur"/>
+                                <feMergeNode in="SourceGraphic"/>
+                            </feMerge>
+                        </filter>
+                    </defs>
+
+                    <!-- Wires and Wire Shadows dynamically populated here -->
+                    <g id="shadowsGroup"></g>
+                    <g id="wiresGroup"></g>
+                    <g id="sparklesGroup"></g>
+                </svg>
+            </div>
+
+            <!-- INSTRUCTIONS MINI BANNER -->
+            <p class="text-[11px] text-gray-400 text-center mt-3 tracking-wide">
+                <i class="fa-solid fa-ear-listen text-cyan-400 mr-1"></i> Usa <span class="text-cyan-300 font-semibold">audífonos</span>. Guiate por el audio estéreo y el grosor de las sombras.
+            </p>
+        </div>
+    </main>
+
+    <!-- FOOTER / CONTROLS -->
+    <footer class="w-full max-w-md px-4 pb-4 text-center z-20 text-xs text-gray-500">
+        <p>© 2026 Blind Defuse • Optimizado para Pantallas Táctiles & Android</p>
+    </footer>
+
+    <!-- OVERLAY: MAIN MENU / START SCREEN -->
+    <div id="startModal" class="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/90 backdrop-blur-md">
+        <div class="industrial-panel max-w-md w-full rounded-2xl p-6 text-center flex flex-col items-center border border-red-600/40 shadow-2xl">
+            <div class="w-16 h-16 bg-red-950/60 rounded-full flex items-center justify-center mb-4 border border-red-500/50 shadow-[0_0_20px_rgba(239,68,68,0.3)]">
+                <i class="fa-solid fa-user-ninja text-3xl text-red-500"></i>
+            </div>
+            
+            <h1 class="text-2xl sm:text-3xl font-black text-white uppercase tracking-wider mb-1">
+                DESARME A <span class="text-red-500">CIEGAS</span>
+            </h1>
+            <p class="text-xs text-gray-400 uppercase tracking-widest mb-6">Misión Táctica de Explosivos</p>
+
+            <!-- Instructions Card -->
+            <div class="bg-gray-950/90 rounded-xl p-4 text-left border border-gray-800 space-y-3 mb-6 w-full text-xs text-gray-300">
+                <div class="flex items-start space-x-3">
+                    <i class="fa-solid fa-headphones text-cyan-400 text-base mt-0.5"></i>
+                    <p><strong class="text-white">Escucha el Pulso:</strong> El cable activo emite chasquidos estéreo que se desplazan entre izquierda y derecha.</p>
+                </div>
+                <div class="flex items-start space-x-3">
+                    <i class="fa-solid fa-eye text-yellow-400 text-base mt-0.5"></i>
+                    <p><strong class="text-white">Observa las Sombras:</strong> Las sombras proyectadas revelan qué cable se cruza por encima y su grosor real.</p>
+                </div>
+                <div class="flex items-start space-x-3">
+                    <i class="fa-solid fa-hand-pointer text-red-400 text-base mt-0.5"></i>
+                    <p><strong class="text-white">Corta el Cable:</strong> Toca el cable activo para desactivar la bomba antes de que el tiempo expire.</p>
+                </div>
+            </div>
+
+            <button id="btnStartGame" class="w-full py-4 bg-gradient-to-r from-red-700 to-red-600 hover:from-red-600 hover:to-red-500 active:scale-95 rounded-xl font-bold text-white tracking-wider text-base shadow-lg shadow-red-900/50 transition flex items-center justify-center space-x-2">
+                <i class="fa-solid fa-play"></i>
+                <span>INICIAR DESARME</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- OVERLAY: GAME OVER SCREEN -->
+    <div id="gameOverModal" class="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/92 backdrop-blur-md hidden">
+        <div id="gameOverBox" class="industrial-panel max-w-md w-full rounded-2xl p-6 text-center flex flex-col items-center border border-red-600/50">
+            <div class="w-16 h-16 bg-red-950/80 rounded-full flex items-center justify-center mb-3 border border-red-500/80 animate-bounce">
+                <i class="fa-solid fa-explosion text-3xl text-red-500"></i>
+            </div>
+            
+            <h2 id="gameOverTitle" class="text-3xl font-black text-red-500 uppercase tracking-wider mb-1">¡BOMBA DETONADA!</h2>
+            <p id="gameOverSubtitle" class="text-xs text-gray-400 mb-6">Haz cortado el cable equivocado o el tiempo expiró.</p>
+
+            <!-- Stats Box -->
+            <div class="bg-black/80 rounded-xl p-4 w-full border border-gray-800 grid grid-cols-2 gap-4 mb-6">
+                <div class="flex flex-col">
+                    <span class="text-[10px] text-gray-500 uppercase font-bold">PUNTUACTION</span>
+                    <span id="finalScore" class="digital-font text-2xl text-yellow-400 font-bold">0</span>
+                </div>
+                <div class="flex flex-col">
+                    <span class="text-[10px] text-gray-500 uppercase font-bold">BOMBAS DESARMADAS</span>
+                    <span id="finalBombs" class="digital-font text-2xl text-cyan-400 font-bold">0</span>
+                </div>
+            </div>
+
+            <!-- Retry Button -->
+            <button id="btnRestart" class="w-full py-3.5 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 active:scale-95 rounded-xl font-bold text-white tracking-wider text-base shadow-lg shadow-red-900/40 transition flex items-center justify-center space-x-2">
+                <i class="fa-solid fa-rotate-right"></i>
+                <span>REINTENTAR</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- JAVASCRIPT GAME LOGIC & SYNTHESIZER -->
+    <script>
+        /**
+         * DESARME A CIEGAS (BLIND DEFUSE)
+         * Single File HTML5 Game Engine & Web Audio API Synthesizer
+         */
+
+        // --- AUDIO SYNTHESIZER (WEB AUDIO API) ---
+        class SoundEngine {
+            constructor() {
+                this.ctx = null;
+                this.isMuted = false;
+                this.initialized = false;
+            }
+
+            init() {
+                if (this.initialized) return;
+                try {
+                    const AudioContext = window.AudioContext || window.webkitAudioContext;
+                    this.ctx = new AudioContext();
+                    this.initialized = true;
+                } catch (e) {
+                    console.warn("Web Audio API not supported", e);
+                }
+            }
+
+            resume() {
+                if (this.ctx && this.ctx.state === 'suspended') {
+                    this.ctx.resume();
+                }
+            }
+
+            // Click / Cable selection tick
+            playTick(pan = 0) {
+                if (this.isMuted || !this.ctx) return;
+                this.resume();
+
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                const panner = this.ctx.createStereoPanner ? this.ctx.createStereoPanner() : null;
+
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(800, this.ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(120, this.ctx.currentTime + 0.04);
+
+                gain.gain.setValueAtTime(0.3, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.04);
+
+                if (panner) {
+                    panner.pan.value = Math.max(-1, Math.min(1, pan));
+                    osc.connect(gain);
+                    gain.connect(panner);
+                    panner.connect(this.ctx.destination);
+                } else {
+                    osc.connect(gain);
+                    gain.connect(this.ctx.destination);
+                }
+
+                osc.start();
+                osc.stop(this.ctx.currentTime + 0.05);
+            }
+
+            // Magnetic Pulse / Cable Sound Cue (Stereo Panned)
+            playPulseCue(pan = 0, freq = 440) {
+                if (this.isMuted || !this.ctx) return;
+                this.resume();
+
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                const panner = this.ctx.createStereoPanner ? this.ctx.createStereoPanner() : null;
+
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(freq * 0.5, this.ctx.currentTime + 0.12);
+
+                gain.gain.setValueAtTime(0.4, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.12);
+
+                if (panner) {
+                    panner.pan.setValueAtTime(pan, this.ctx.currentTime);
+                    osc.connect(gain);
+                    gain.connect(panner);
+                    panner.connect(this.ctx.destination);
+                } else {
+                    osc.connect(gain);
+                    gain.connect(this.ctx.destination);
+                }
+
+                osc.start();
+                osc.stop(this.ctx.currentTime + 0.13);
+            }
+
+            // Correct Cable Snip (Success sound)
+            playSuccess() {
+                if (this.isMuted || !this.ctx) return;
+                this.resume();
+
+                const now = this.ctx.currentTime;
+                
+                // Arpeggio notes (E5, G#5, B5, E6)
+                const freqs = [659.25, 830.61, 987.77, 1318.51];
+                freqs.forEach((freq, idx) => {
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(freq, now + idx * 0.06);
+
+                    gain.gain.setValueAtTime(0.25, now + idx * 0.06);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.06 + 0.15);
+
+                    osc.connect(gain);
+                    gain.connect(this.ctx.destination);
+
+                    osc.start(now + idx * 0.06);
+                    osc.stop(now + idx * 0.06 + 0.16);
+                });
+            }
+
+            // Wrong Cable Snip / Timeout Explosion
+            playExplosion() {
+                if (this.isMuted || !this.ctx) return;
+                this.resume();
+
+                const now = this.ctx.currentTime;
+
+                // Noise buffer generation for explosion
+                const bufferSize = this.ctx.sampleRate * 0.8;
+                const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+                const data = buffer.getChannelData(0);
+                for (let i = 0; i < bufferSize; i++) {
+                    data[i] = Math.random() * 2 - 1;
+                }
+
+                const noise = this.ctx.createBufferSource();
+                noise.buffer = buffer;
+
+                // Lowpass filter for deep boom sound
+                const filter = this.ctx.createBiquadFilter();
+                filter.type = 'lowpass';
+                filter.frequency.setValueAtTime(800, now);
+                filter.frequency.linearRampToValueAtTime(50, now + 0.7);
+
+                const gain = this.ctx.createGain();
+                gain.gain.setValueAtTime(0.8, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.75);
+
+                noise.connect(filter);
+                filter.connect(gain);
+                gain.connect(this.ctx.destination);
+
+                noise.start(now);
+                noise.stop(now + 0.8);
+            }
+
+            // Warning Beep when time is short
+            playWarningBeep() {
+                if (this.isMuted || !this.ctx) return;
+                this.resume();
+
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+
+                osc.type = 'square';
+                osc.frequency.setValueAtTime(950, this.ctx.currentTime);
+
+                gain.gain.setValueAtTime(0.15, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.08);
+
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+
+                osc.start();
+                osc.stop(this.ctx.currentTime + 0.09);
+            }
+        }
+
+        // --- GAME ENGINE & STATE MANAGEMENT ---
+        class BlindDefuseGame {
+            constructor() {
+                this.sound = new SoundEngine();
+                
+                // Game States
+                this.level = 1;
+                this.score = 0;
+                this.highScore = parseInt(localStorage.getItem('blind_defuse_highscore') || '0', 10);
+                this.timeLeft = 15.0;
+                this.maxTime = 15.0;
+                this.isPlaying = false;
+                this.timerInterval = null;
+                this.pulseInterval = null;
+
+                // Wire configuration
+                this.wires = [];
+                this.targetWireIndex = -1;
+
+                // Colors palette for wires (High contrast cyber retro)
+                this.wireColors = [
+                    { name: 'rojo', main: '#ef4444', shadow: '#7f1d1d' },
+                    { name: 'azul', main: '#3b82f6', shadow: '#1e3a8a' },
+                    { name: 'amarillo', main: '#eab308', shadow: '#713f12' },
+                    { name: 'verde', main: '#22c55e', shadow: '#14532d' },
+                    { name: 'púrpura', main: '#a855f7', shadow: '#581c87' }
+                ];
+
+                // DOM Elements
+                this.dom = {
+                    hudLevel: document.getElementById('hudLevel'),
+                    hudTimer: document.getElementById('hudTimer'),
+                    hudScore: document.getElementById('hudScore'),
+                    hudHighScore: document.getElementById('hudHighScore'),
+                    panBarL: document.getElementById('panBarL'),
+                    panBarR: document.getElementById('panBarR'),
+                    signalLeds: document.getElementById('signalLeds'),
+                    signalText: document.getElementById('signalText'),
+                    pulseSignalIcon: document.getElementById('pulseSignalIcon'),
+                    bombSvg: document.getElementById('bombSvg'),
+                    wiresGroup: document.getElementById('wiresGroup'),
+                    shadowsGroup: document.getElementById('shadowsGroup'),
+                    sparklesGroup: document.getElementById('sparklesGroup'),
+                    flashOverlay: document.getElementById('flashOverlay'),
+                    btnMute: document.getElementById('btnMute'),
+                    muteIcon: document.getElementById('muteIcon'),
+                    startModal: document.getElementById('startModal'),
+                    btnStartGame: document.getElementById('btnStartGame'),
+                    gameOverModal: document.getElementById('gameOverModal'),
+                    gameOverBox: document.getElementById('gameOverBox'),
+                    btnRestart: document.getElementById('btnRestart'),
+                    finalScore: document.getElementById('finalScore'),
+                    finalBombs: document.getElementById('finalBombs')
+                };
+
+                this.bindEvents();
+                this.updateHighScoreDisplay();
+            }
+
+            bindEvents() {
+                // Audio initialization & start
+                this.dom.btnStartGame.addEventListener('click', () => {
+                    this.sound.init();
+                    this.startGame();
+                });
+
+                this.dom.btnRestart.addEventListener('click', () => {
+                    this.startGame();
+                });
+
+                // Mute toggle
+                this.dom.btnMute.addEventListener('click', () => {
+                    this.sound.isMuted = !this.sound.isMuted;
+                    this.dom.muteIcon.className = this.sound.isMuted ? 
+                        "fa-solid fa-volume-xmark text-lg text-red-400" : 
+                        "fa-solid fa-volume-high text-lg text-gray-300";
+                });
+            }
+
+            updateHighScoreDisplay() {
+                this.dom.hudHighScore.textContent = String(this.highScore).padStart(4, '0');
+            }
+
+            startGame() {
+                this.level = 1;
+                this.score = 0;
+                this.isPlaying = true;
+
+                this.dom.startModal.classList.add('hidden');
+                this.dom.gameOverModal.classList.add('hidden');
+                this.dom.gameOverBox.classList.remove('animate-shake');
+
+                this.loadLevel();
+            }
+
+            loadLevel() {
+                // Adjust difficulty based on level
+                this.maxTime = Math.max(6.0, 15.0 - (this.level - 1) * 0.8);
+                this.timeLeft = this.maxTime;
+
+                // Update HUD
+                this.dom.hudLevel.textContent = `#${String(this.level).padStart(2, '0')}`;
+                this.dom.hudScore.textContent = String(this.score).padStart(4, '0');
+                this.dom.hudTimer.textContent = `${this.timeLeft.toFixed(1)}s`;
+                this.dom.hudTimer.className = "digital-font text-3xl sm:text-4xl font-bold led-red tracking-wider";
+
+                // Clear previous wires & timers
+                clearInterval(this.timerInterval);
+                clearInterval(this.pulseInterval);
+
+                // Generate wires procedurally
+                this.generateWires();
+
+                // Start loops
+                this.startTimer();
+                this.startMagneticPulseLoop();
+            }
+
+            generateWires() {
+                this.dom.wiresGroup.innerHTML = '';
+                this.dom.shadowsGroup.innerHTML = '';
+                this.dom.sparklesGroup.innerHTML = '';
+
+                // Determine number of wires (4 or 5 based on level)
+                const numWires = (this.level >= 3) ? 5 : 4;
+                this.wires = [];
+
+                // Choose target wire randomly
+                this.targetWireIndex = Math.floor(Math.random() * numWires);
+
+                const width = 320;
+                const height = 280;
+                const startYStep = height / (numWires + 1);
+
+                // Color shuffling
+                const shuffledColors = [...this.wireColors].sort(() => Math.random() - 0.5);
+
+                for (let i = 0; i < numWires; i++) {
+                    const startY = startYStep * (i + 1);
+                    const endY = startYStep * (i + 1) + (Math.random() * 60 - 30);
+
+                    // Curve control points for twisted wires
+                    const cp1x = width * 0.3;
+                    const cp1y = startY + (Math.random() * 80 - 40);
+                    const cp2x = width * 0.7;
+                    const cp2y = endY + (Math.random() * 80 - 40);
+
+                    // Path data
+                    const pathData = `M 20 ${startY} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${width - 20} ${endY}`;
+
+                    // Real wire thickness vs Shadow Thickness (Visual hint)
+                    const isTarget = (i === this.targetWireIndex);
+                    // Active wire has slightly thicker shadow hint or unique crossover
+                    const wireStrokeWidth = 10;
+                    const shadowStrokeWidth = isTarget ? 14 : 9; // Shadow thickness clue!
+
+                    // Stereophonic Panning location clue (-1.0 to 1.0)
+                    // Panning is computed from the midpoint curve X position
+                    const midPointX = (cp1x + cp2x) / 2;
+                    const stereoPan = ((midPointX / width) * 2) - 1.0; 
+
+                    this.wires.push({
+                        id: i,
+                        pathData: pathData,
+                        color: shuffledColors[i % shuffledColors.length],
+                        isTarget: isTarget,
+                        pan: stereoPan,
+                        isCut: false
+                    });
+
+                    // 1. Draw SVG Shadow (Wall projection clue)
+                    const shadowPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                    shadowPath.setAttribute('d', pathData);
+                    shadowPath.setAttribute('stroke', '#000000');
+                    shadowPath.setAttribute('stroke-width', shadowStrokeWidth);
+                    shadowPath.setAttribute('fill', 'none');
+                    shadowPath.setAttribute('stroke-linecap', 'round');
+                    shadowPath.setAttribute('opacity', isTarget ? '0.75' : '0.45');
+                    shadowPath.setAttribute('transform', 'translate(10, 14)'); // Shadow offset
+                    this.dom.shadowsGroup.appendChild(shadowPath);
+
+                    // 2. Draw Interactive Wire
+                    const wireGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+                    wireGroup.setAttribute('class', 'wire-interactive');
+
+                    const wirePath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                    wirePath.setAttribute('d', pathData);
+                    wirePath.setAttribute('stroke', shuffledColors[i % shuffledColors.length].main);
+                    wirePath.setAttribute('stroke-width', wireStrokeWidth);
+                    wirePath.setAttribute('fill', 'none');
+                    wirePath.setAttribute('stroke-linecap', 'round');
+                    wirePath.setAttribute('filter', 'url(#shadowFilter)');
+                    wirePath.setAttribute('id', `wire-${i}`);
+
+                    // Touch / Click event handler
+                    const handleCut = (e) => {
+                        e.preventDefault();
+                        if (this.isPlaying) {
+                            this.cutWire(i);
+                        }
+                    };
+
+                    wireGroup.addEventListener('touchstart', handleCut, { passive: false });
+                    wireGroup.addEventListener('click', handleCut);
+
+                    // Wire Connector Terminal Nodes
+                    const startNode = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                    startNode.setAttribute('cx', '20');
+                    startNode.setAttribute('cy', startY);
+                    startNode.setAttribute('r', '7');
+                    startNode.setAttribute('fill', '#334155');
+                    startNode.setAttribute('stroke', '#94a3b8');
+                    startNode.setAttribute('stroke-width', '2');
+
+                    const endNode = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                    endNode.setAttribute('cx', String(width - 20));
+                    endNode.setAttribute('cy', endY);
+                    endNode.setAttribute('r', '7');
+                    endNode.setAttribute('fill', '#334155');
+                    endNode.setAttribute('stroke', '#94a3b8');
+                    endNode.setAttribute('stroke-width', '2');
+
+                    wireGroup.appendChild(startNode);
+                    wireGroup.appendChild(wirePath);
+                    wireGroup.appendChild(endNode);
+
+                    this.dom.wiresGroup.appendChild(wireGroup);
+                }
+            }
+
+            // Magnetic & Audio Pulse signal simulator
+            startMagneticPulseLoop() {
+                const targetWire = this.wires[this.targetWireIndex];
+                if (!targetWire) return;
+
+                // Interval speeds up as levels progress
+                const pulseRate = Math.max(400, 1000 - (this.level * 60));
+
+                this.pulseInterval = setInterval(() => {
+                    if (!this.isPlaying) return;
+
+                    // Play audio cue panned in 3D stereo
+                    this.sound.playPulseCue(targetWire.pan, 500 + (this.level * 30));
+
+                    // Update UI HUD Panning indicators
+                    const panVal = targetWire.pan; // -1 to 1
+                    if (panVal < 0) {
+                        this.dom.panBarL.style.width = `${Math.abs(panVal) * 100}%`;
+                        this.dom.panBarR.style.width = '0%';
+                    } else {
+                        this.dom.panBarL.style.width = '0%';
+                        this.dom.panBarR.style.width = `${panVal * 100}%`;
+                    }
+
+                    // Animate Magnetic Sensor LEDs
+                    this.animateSignalSensor();
+
+                }, pulseRate);
+            }
+
+            animateSignalSensor() {
+                const leds = this.dom.signalLeds.children;
+                const signalPower = Math.floor(Math.random() * 3) + 2; // 2 to 4 leds
+
+                for (let i = 0; i < leds.length; i++) {
+                    if (i < signalPower) {
+                        leds[i].className = "w-2.5 h-2.5 rounded-full bg-red-500 shadow-[0_0_8px_#ef4444]";
+                    } else {
+                        leds[i].className = "w-2.5 h-2.5 rounded-full bg-gray-800";
+                    }
+                }
+
+                this.dom.signalText.textContent = `${signalPower * 25}%`;
+                this.dom.pulseSignalIcon.classList.add('text-red-400');
+                setTimeout(() => {
+                    this.dom.pulseSignalIcon.classList.remove('text-red-400');
+                }, 200);
+            }
+
+            startTimer() {
+                const tickInterval = 100; // 100ms
+                this.timerInterval = setInterval(() => {
+                    if (!this.isPlaying) return;
+
+                    this.timeLeft -= (tickInterval / 1000);
+
+                    if (this.timeLeft <= 0) {
+                        this.timeLeft = 0;
+                        this.updateTimerDisplay();
+                        this.triggerExplosion("TIEMPO AGOTADO");
+                        return;
+                    }
+
+                    // Low time warning
+                    if (this.timeLeft <= 4.0) {
+                        this.dom.hudTimer.className = "digital-font text-3xl sm:text-4xl font-bold led-red tracking-wider animate-ping";
+                        this.dom.flashOverlay.classList.add('red-flash-overlay');
+                        if (Math.floor(this.timeLeft * 10) % 5 === 0) {
+                            this.sound.playWarningBeep();
+                        }
+                    } else {
+                        this.dom.flashOverlay.classList.remove('red-flash-overlay');
+                    }
+
+                    this.updateTimerDisplay();
+                }, tickInterval);
+            }
+
+            updateTimerDisplay() {
+                this.dom.hudTimer.textContent = `${this.timeLeft.toFixed(1)}s`;
+            }
+
+            // CUT WIRE ACTION
+            cutWire(wireIndex) {
+                const wire = this.wires[wireIndex];
+                if (!wire || wire.isCut) return;
+
+                wire.isCut = true;
+
+                // Visual cut effect on wire
+                const wireElem = document.getElementById(`wire-${wireIndex}`);
+                if (wireElem) {
+                    wireElem.setAttribute('stroke-dasharray', '8, 8');
+                    wireElem.setAttribute('opacity', '0.4');
+                }
+
+                if (wire.isTarget) {
+                    // --- SUCCESSFUL DEFUSE ---
+                    this.sound.playSuccess();
+                    this.triggerSparks(wireIndex);
+
+                    // Add score (+100 base + time bonus)
+                    const timeBonus = Math.floor(this.timeLeft * 20);
+                    this.score += 100 + timeBonus;
+
+                    // Haptic feedback if on Android/Mobile device
+                    if (navigator.vibrate) {
+                        navigator.vibrate([60, 40, 60]);
+                    }
+
+                    this.level++;
+                    
+                    // Brief pause before next bomb
+                    this.isPlaying = false;
+                    clearInterval(this.timerInterval);
+                    clearInterval(this.pulseInterval);
+
+                    setTimeout(() => {
+                        this.isPlaying = true;
+                        this.loadLevel();
+                    }, 800);
+
+                } else {
+                    // --- WRONG WIRE DETONATION ---
+                    this.triggerExplosion("CABLE INCORRECTO");
+                }
+            }
+
+            triggerSparks(wireIndex) {
+                // Sparkles visual effect on correct wire cut
+                const sparkleGroup = this.dom.sparklesGroup;
+                sparkleGroup.innerHTML = '';
+
+                for (let i = 0; i < 15; i++) {
+                    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                    circle.setAttribute('cx', String(80 + Math.random() * 160));
+                    circle.setAttribute('cy', String(60 + Math.random() * 160));
+                    circle.setAttribute('r', String(Math.random() * 4 + 2));
+                    circle.setAttribute('fill', '#10b981');
+                    circle.setAttribute('filter', 'url(#glowGreen)');
+                    sparkleGroup.appendChild(circle);
+                }
+            }
+
+            triggerExplosion(reason) {
+                this.isPlaying = false;
+                clearInterval(this.timerInterval);
+                clearInterval(this.pulseInterval);
+
+                // Sound & Vibration
+                this.sound.playExplosion();
+                if (navigator.vibrate) {
+                    navigator.vibrate([300, 100, 300]);
+                }
+
+                // Screen Flash & Shake
+                this.dom.flashOverlay.style.opacity = '0.8';
+                document.body.classList.add('animate-shake');
+
+                setTimeout(() => {
+                    this.dom.flashOverlay.style.opacity = '0';
+                    document.body.classList.remove('animate-shake');
+                }, 500);
+
+                // Update High Score
+                if (this.score > this.highScore) {
+                    this.highScore = this.score;
+                    localStorage.setItem('blind_defuse_highscore', String(this.highScore));
+                    this.updateHighScoreDisplay();
+                }
+
+                // Show Game Over Modal
+                this.dom.finalScore.textContent = String(this.score);
+                this.dom.finalBombs.textContent = String(this.level - 1);
+                this.dom.gameOverSubtitle.textContent = `Bomba #${this.level}: ${reason}`;
+
+                setTimeout(() => {
+                    this.dom.gameOverModal.classList.remove('hidden');
+                    this.dom.gameOverBox.classList.add('animate-shake');
+                }, 600);
+            }
+        }
+
+        // Initialize Game when page is loaded
+        window.addEventListener('DOMContentLoaded', () => {
+            window.gameInstance = new BlindDefuseGame();
+        });
+    </script>
+</body>
+</html>
